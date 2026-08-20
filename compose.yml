@@ -2,7 +2,7 @@ name: family-orbit
 
 services:
   caddy:
-    image: caddy:2.10-alpine
+    image: caddy:2.11-alpine
     restart: unless-stopped
     ports:
       - "80:80"
@@ -81,7 +81,7 @@ services:
         condition: service_healthy
 
   mongo:
-    image: mongo:8.0
+    image: mongo:8.2
     restart: unless-stopped
     command: ["mongod", "--bind_ip_all"]
     volumes:
@@ -93,7 +93,7 @@ services:
       retries: 10
 
   mailpit:
-    image: axllent/mailpit:v1.27
+    image: axllent/mailpit:v1.30
     profiles: ["dev"]
     ports:
       - "8025:8025"

@@ -1,6 +1,8 @@
 "use client";
 
-import maplibregl, { type GeoJSONSource, type Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
+import type { FeatureCollection } from "geojson";
+import * as maplibregl from "maplibre-gl";
+import { type GeoJSONSource, type Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
 import { useEffect, useRef } from "react";
 import type { ChildSummary, HistoryPoint, SafetyZone } from "../lib/types";
 
@@ -154,14 +156,14 @@ export default function FamilyMap({ familyChildren, selectedChildId, zones, hist
   return <div className="map-canvas" ref={containerRef} aria-label="家族の位置を表示する地図" />;
 }
 
-function historyFeatureCollection(points: HistoryPoint[]): GeoJSON.FeatureCollection {
+function historyFeatureCollection(points: HistoryPoint[]): FeatureCollection {
   return {
     type: "FeatureCollection",
     features: points.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: points.map((point) => [point.longitude, point.latitude]) } }] : [],
   };
 }
 
-function zonesFeatureCollection(zones: SafetyZone[]): GeoJSON.FeatureCollection {
+function zonesFeatureCollection(zones: SafetyZone[]): FeatureCollection {
   return {
     type: "FeatureCollection",
     features: zones.map((zone) => ({
@@ -172,7 +174,7 @@ function zonesFeatureCollection(zones: SafetyZone[]): GeoJSON.FeatureCollection 
   };
 }
 
-function accuracyFeatureCollection(children: ChildSummary[]): GeoJSON.FeatureCollection {
+function accuracyFeatureCollection(children: ChildSummary[]): FeatureCollection {
   return {
     type: "FeatureCollection",
     features: children.flatMap((child) => {

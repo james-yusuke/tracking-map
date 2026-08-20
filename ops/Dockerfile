@@ -1,4 +1,4 @@
-FROM mongo:8.0
+FROM mongo:8.2
 
 USER root
 RUN apt-get update \

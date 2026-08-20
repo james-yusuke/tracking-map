@@ -1,0 +1,484 @@
+openapi: 3.1.0
+info:
+  title: Family Orbit API
+  version: 0.1.0
+  description: |
+    保護者アプリ、Family Orbit Link、閲覧専用Webが共有するGo API。
+    Webクライアントのアクセストークンでは更新系APIが `web_read_only` で拒否される。
+servers:
+  - url: /api/v1
+tags:
+  - { name: Authentication, description: 保護者認証 }
+  - { name: Guardian, description: 家族の閲覧・モバイル管理 }
+  - { name: Pairing, description: 子ども端末の一度限りペアリング }
+  - { name: Device, description: Family Orbit Link専用 }
+paths:
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: 保護者と家族を登録する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201': { description: 登録完了, content: { application/json: { schema: { $ref: '#/components/schemas/AuthSession' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { description: メールアドレス登録済み, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: 保護者としてログインする
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200': { description: ログイン成功, content: { application/json: { schema: { $ref: '#/components/schemas/AuthSession' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: ローテーション式トークンを更新する
+      description: WebはHttpOnly Cookie、モバイルは本文のtokenを使用する。使用済みトークンは失効する。
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { token: { type: string } }
+      responses:
+        '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/AuthSession' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: リフレッシュセッションを失効する
+      responses: { '204': { description: ログアウト完了 } }
+  /auth/verify-email:
+    post:
+      tags: [Authentication]
+      summary: メールアドレスを確認する
+      responses: { '204': { description: 確認完了 }, '400': { $ref: '#/components/responses/BadRequest' } }
+  /auth/request-password-reset:
+    post:
+      tags: [Authentication]
+      summary: パスワード再設定メールを要求する
+      responses: { '202': { description: 常に受付完了を返す } }
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: 一度限りトークンでパスワードを再設定する
+      responses: { '204': { description: 再設定完了 }, '400': { $ref: '#/components/responses/BadRequest' } }
+  /dashboard:
+    get:
+      tags: [Guardian]
+      summary: 家族の現在状態を取得する
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 家族・現在地・安全エリア・通知, content: { application/json: { schema: { $ref: '#/components/schemas/Dashboard' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /account:
+    delete:
+      tags: [Guardian]
+      summary: アカウントと家族データを完全削除する
+      description: モバイル保護者アプリの家族所有者専用。位置履歴を含む関連データを同期的に削除する。Webトークンは拒否される。
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: 完全削除完了 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /children:
+    post:
+      tags: [Guardian]
+      summary: 子どもプロフィールを作成する
+      description: モバイル保護者アプリ専用。Webトークンは拒否される。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties: { name: { type: string, maxLength: 60 }, color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' } }
+      responses:
+        '201': { description: 作成完了 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /children/{childID}:
+    delete:
+      tags: [Guardian]
+      summary: 子どもプロフィールと関連データを削除する
+      description: 家族所有者のモバイル保護者アプリ専用。ペアリング端末を失効させ、位置履歴・最新位置・通知・エリア状態を同期的に削除する。
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ChildID' }]
+      responses:
+        '204': { description: 削除完了 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /children/{childID}/pairing-code:
+    post:
+      tags: [Pairing]
+      summary: 10分有効・一度限りの接続コードを発行する
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ChildID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pauseRestricted]
+              properties:
+                pauseRestricted: { type: boolean, description: Linkアプリ内の共有停止と接続解除を保護者設定で制限する }
+      responses:
+        '201': { description: コード発行, content: { application/json: { schema: { $ref: '#/components/schemas/PairingCode' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /children/{childID}/history:
+    get:
+      tags: [Guardian]
+      summary: 最大30日間の位置履歴を取得する
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ChildID' }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: 時系列の位置履歴
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Location' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /children/{childID}/history-days:
+    get:
+      tags: [Guardian]
+      summary: 過去30日間の位置履歴を日本時間の日別に集計する
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ChildID' }]
+      responses:
+        '200':
+          description: 日別履歴
+          content: { application/json: { schema: { type: object, properties: { days: { type: array, items: { $ref: '#/components/schemas/HistoryDay' } } } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /children/{childID}/messages:
+    parameters: [{ $ref: '#/components/parameters/ChildID' }]
+    get:
+      tags: [Guardian]
+      summary: 選択した子どもへの送信履歴を取得する
+      description: モバイル保護者アプリ専用。
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: メッセージ一覧
+          content: { application/json: { schema: { $ref: '#/components/schemas/MessageList' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Guardian]
+      summary: 子ども端末へメッセージ通知を送る
+      description: モバイル保護者アプリ専用。clientMessageIdで重複送信を防止する。
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MessageInput' } } } }
+      responses:
+        '200': { description: 同じclientMessageIdで保存済みのメッセージ, content: { application/json: { schema: { $ref: '#/components/schemas/Message' } } } }
+        '201': { description: 送信待ちとして保存, content: { application/json: { schema: { $ref: '#/components/schemas/Message' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /pairing:
+    post:
+      tags: [Pairing]
+      summary: 子ども端末を6桁コードでペアリングする
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PairDeviceRequest' }
+      responses:
+        '201': { description: 端末トークンを発行, content: { application/json: { schema: { $ref: '#/components/schemas/PairedDevice' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { description: コード使用済み, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+  /devices/push:
+    post:
+      tags: [Guardian]
+      summary: 保護者端末のFCM/APNsトークンを登録する
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GuardianPushInput' } } } }
+      responses: { '200': { description: 登録完了 }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /zones:
+    post:
+      tags: [Guardian]
+      summary: 安全エリアを作成する
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ZoneInput' } } }
+      responses: { '201': { description: 作成完了 }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /zones/{zoneID}:
+    parameters: [{ name: zoneID, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{24}$' } }]
+    patch:
+      tags: [Guardian]
+      summary: 安全エリアを更新する
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ZoneInput' } } } }
+      responses: { '200': { description: 更新完了 }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+    delete:
+      tags: [Guardian]
+      summary: 安全エリアを無効化する
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: 無効化完了 }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /device/zones:
+    get:
+      tags: [Device]
+      summary: 端末で監視する安全エリアを取得する
+      security: [{ deviceToken: [] }]
+      responses:
+        '200':
+          description: 割り当て済み安全エリア
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [zones]
+                properties: { zones: { type: array, items: { $ref: '#/components/schemas/Zone' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /device:
+    delete:
+      tags: [Device]
+      summary: Link端末自身のペアリングとPush配送先を解除する
+      security: [{ deviceToken: [] }]
+      responses: { '204': { description: 解除完了 }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /device/locations:
+    post:
+      tags: [Device]
+      summary: 子ども端末から位置情報を最大100件送信する
+      security: [{ deviceToken: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LocationBatch' } } }
+      responses:
+        '202':
+          description: 受信完了。重複キーはduplicate=true。
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { accepted: { type: integer }, duplicate: { type: boolean } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /device/tracking-state:
+    post:
+      tags: [Device]
+      summary: 位置共有の状態変更または5分ハートビートを送信する
+      security: [{ deviceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { $ref: '#/components/schemas/TrackingState' }
+                reason: { type: string }
+      responses: { '200': { description: 状態更新完了 }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /device/config:
+    get:
+      tags: [Device]
+      summary: ペアリング端末の追跡設定を取得する
+      security: [{ deviceToken: [] }]
+      responses:
+        '200':
+          description: 端末設定
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pauseRestricted, trackingState]
+                properties:
+                  pauseRestricted: { type: boolean }
+                  trackingState: { $ref: '#/components/schemas/TrackingState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /device/push:
+    post:
+      tags: [Device]
+      summary: Link端末のFCM/APNsトークンを登録する
+      security: [{ deviceToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [pushToken], properties: { pushToken: { type: string } } } } } }
+      responses: { '200': { description: 登録完了, content: { application/json: { schema: { type: object, required: [registered], properties: { registered: { type: boolean } } } } } }, '401': { $ref: '#/components/responses/Unauthorized' } }
+  /device/messages:
+    get:
+      tags: [Device]
+      summary: ペアリングされた子どもの受信メッセージを取得する
+      security: [{ deviceToken: [] }]
+      responses: { '200': { description: 過去30日間のメッセージ一覧, content: { application/json: { schema: { $ref: '#/components/schemas/MessageList' } } } }, '401': { $ref: '#/components/responses/Unauthorized' } }
+  /device/messages/{messageID}/read:
+    post:
+      tags: [Device]
+      summary: Linkで表示したメッセージを既読にする
+      security: [{ deviceToken: [] }]
+      parameters: [{ name: messageID, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{24}$' } }]
+      responses: { '200': { description: 既読更新完了, content: { application/json: { schema: { $ref: '#/components/schemas/Message' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    deviceToken: { type: apiKey, in: header, name: Authorization, description: 'Device <token>' }
+  parameters:
+    ChildID: { name: childID, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{24}$' } }
+  responses:
+    BadRequest: { description: 入力エラー, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+    Unauthorized: { description: 認証エラー, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+    Forbidden: { description: 権限エラー, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+    NotFound: { description: 対象なし, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+  schemas:
+    ClientType: { type: string, enum: [web, parent_android, parent_ios] }
+    TrackingState: { type: string, enum: [active, paused, permission_denied] }
+    APIError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, examples: [validation_failed] }
+        message: { type: string }
+    RegisterRequest:
+      type: object
+      required: [email, password, displayName, familyName, clientType]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 12 }
+        displayName: { type: string }
+        familyName: { type: string }
+        clientType: { $ref: '#/components/schemas/ClientType' }
+    LoginRequest:
+      type: object
+      required: [email, password, clientType]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 12 }
+        clientType: { $ref: '#/components/schemas/ClientType' }
+    AuthSession:
+      type: object
+      required: [accessToken, expiresInSeconds, user]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string, description: Webでは省略されHttpOnly Cookieとなる }
+        expiresInSeconds: { type: integer, const: 900 }
+        user:
+          type: object
+          required: [id, email, displayName, emailVerified]
+          properties:
+            id: { type: string }
+            email: { type: string, format: email }
+            displayName: { type: string }
+            emailVerified: { type: boolean }
+    PairingCode:
+      type: object
+      required: [code, expiresAt, qrPayload, pauseRestricted]
+      properties:
+        code: { type: string, pattern: '^\d{6}$' }
+        expiresAt: { type: string, format: date-time }
+        qrPayload: { type: string, format: uri }
+        pauseRestricted: { type: boolean }
+    PairDeviceRequest:
+      type: object
+      required: [code, deviceName, platform]
+      properties:
+        code: { type: string, pattern: '^\d{6}$' }
+        deviceName: { type: string }
+        platform: { type: string, enum: [android, ios] }
+    PairedDevice:
+      type: object
+      required: [deviceId, deviceToken, childId, pauseRestricted]
+      properties: { deviceId: { type: string }, deviceToken: { type: string }, childId: { type: string }, pauseRestricted: { type: boolean } }
+    Location:
+      type: object
+      required: [latitude, longitude, accuracy, recordedAt, batteryLevel]
+      properties:
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        accuracy: { type: number, minimum: 0 }
+        recordedAt: { type: string, format: date-time }
+        batteryLevel: { type: number, minimum: 0, maximum: 1 }
+        isCharging: { type: boolean }
+    LocationSample:
+      allOf:
+        - { $ref: '#/components/schemas/Location' }
+        - type: object
+          properties: { speed: { type: number, nullable: true } }
+    LocationBatch:
+      type: object
+      required: [idempotencyKey, trackingState, samples]
+      properties:
+        idempotencyKey: { type: string, minLength: 1 }
+        trackingState: { $ref: '#/components/schemas/TrackingState' }
+        samples: { type: array, minItems: 1, maxItems: 100, items: { $ref: '#/components/schemas/LocationSample' } }
+    ZoneInput:
+      type: object
+      required: [name, latitude, longitude, radiusMeters, childIds]
+      properties:
+        name: { type: string }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        radiusMeters: { type: number, minimum: 100, maximum: 5000 }
+        color: { type: string }
+        childIds: { type: array, minItems: 1, items: { type: string } }
+        enabled: { type: boolean }
+    Zone:
+      type: object
+      required: [id, name, latitude, longitude, radiusMeters]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        radiusMeters: { type: number }
+    HistoryDay:
+      type: object
+      required: [date, pointCount, firstRecordedAt, lastRecordedAt]
+      properties:
+        date: { type: string, format: date }
+        pointCount: { type: integer, minimum: 1 }
+        firstRecordedAt: { type: string, format: date-time }
+        lastRecordedAt: { type: string, format: date-time }
+    MessageInput:
+      type: object
+      required: [clientMessageId, body]
+      properties:
+        clientMessageId: { type: string, minLength: 1, maxLength: 100 }
+        body: { type: string, minLength: 1, maxLength: 200 }
+    GuardianPushInput:
+      type: object
+      required: [deviceName, platform, pushToken]
+      properties:
+        deviceName: { type: string, minLength: 1 }
+        platform: { type: string, enum: [android, ios] }
+        pushToken: { type: string, minLength: 1 }
+    Message:
+      type: object
+      required: [id, childId, clientMessageId, body, deliveryState, createdAt]
+      properties:
+        id: { type: string }
+        childId: { type: string }
+        clientMessageId: { type: string }
+        body: { type: string, maxLength: 200 }
+        deliveryState: { type: string, enum: [queued, processing, pushed, failed, read] }
+        createdAt: { type: string, format: date-time }
+        pushedAt: { type: string, format: date-time, nullable: true }
+        readAt: { type: string, format: date-time, nullable: true }
+    MessageList:
+      type: object
+      required: [messages]
+      properties:
+        messages: { type: array, items: { $ref: '#/components/schemas/Message' } }
+    Dashboard:
+      type: object
+      required: [family, children, zones, alerts, generatedAt]
+      properties:
+        family: { type: object, properties: { id: { type: string }, name: { type: string }, role: { type: string } } }
+        children: { type: array, items: { type: object } }
+        zones: { type: array, items: { $ref: '#/components/schemas/Zone' } }
+        alerts: { type: array, items: { type: object } }
+        generatedAt: { type: string, format: date-time }

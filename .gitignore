@@ -1,0 +1,25 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+*.log
+backups/
+web/.next/
+web/playwright-report/
+web/test-results/
+server/node_modules/
+server/dist/
+
+# Android local and generated files
+android/.gradle/
+android/.idea/
+android/**/build/
+android/local.properties
+
+# Xcode per-user state
+ios/**/xcuserdata/
+*.xcuserstate

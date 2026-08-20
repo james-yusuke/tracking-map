@@ -1,0 +1,153 @@
+name: family-orbit
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
+        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-}
+        NEXT_PUBLIC_MAPTILER_KEY: ${NEXT_PUBLIC_MAPTILER_KEY:-}
+        NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./server
+    restart: unless-stopped
+    command: ["api"]
+    # Debug builds on the host use localhost (iOS Simulator) or 10.0.2.2
+    # (Android Emulator). Keep the direct API listener loopback-only so it is
+    # available to those clients without bypassing Caddy from another machine.
+    ports:
+      - "127.0.0.1:${API_PORT:-4000}:4000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/family-orbit}
+      API_PORT: 4000
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: ./server
+    restart: unless-stopped
+    command: ["worker"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/family-orbit}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    command: ["mongod", "--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    profiles: ["dev"]
+    ports:
+      - "8025:8025"
+    restart: unless-stopped
+
+  backup:
+    build:
+      context: .
+      dockerfile: ops/Dockerfile
+    profiles: ["backup"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/family-orbit}
+    volumes:
+      - ./ops/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    entrypoint: ["sh", "/backup.sh"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  restore:
+    build:
+      context: .
+      dockerfile: ops/Dockerfile
+    profiles: ["restore"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/family-orbit}
+    volumes:
+      - ./ops/restore.sh:/restore.sh:ro
+      - ./backups:/backups
+    entrypoint: ["sh", "/restore.sh"]
+    command: ["${RESTORE_FILE:-}"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  api-test:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.test
+    profiles: ["test"]
+    environment:
+      MONGO_TEST_URI: mongodb://mongo:27017
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
+  caddy_data:
+  caddy_config:

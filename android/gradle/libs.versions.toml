@@ -8,9 +8,9 @@ espressoCore = "3.7.0"
 activityCompose = "1.13.0"
 lifecycle = "2.11.0"
 composeBom = "2026.08.00"
-mapsCompose = "8.4.0"
+mapsCompose = "8.5.0"
 playServicesLocation = "21.4.0"
-firebaseBom = "34.17.0"
+firebaseBom = "34.18.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

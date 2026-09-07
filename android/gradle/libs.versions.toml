@@ -1,5 +1,5 @@
 [versions]
-agp = "9.3.2"
+agp = "9.4.0"
 kotlin = "2.4.10"
 coreKtx = "1.19.0"
 junit = "4.13.2"
@@ -8,7 +8,7 @@ espressoCore = "3.7.0"
 activityCompose = "1.13.0"
 lifecycle = "2.11.0"
 composeBom = "2026.08.00"
-mapsCompose = "8.5.0"
+mapsCompose = "8.6.0"
 playServicesLocation = "21.4.0"
 firebaseBom = "34.18.0"
 
